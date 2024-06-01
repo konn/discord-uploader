@@ -15,7 +15,7 @@ jobs:
       id: cache-keys
       with:
         script: |
-          const script = require('./ci/scripts/calc-cache-keys.js')
+          const script = require('./ci-scripts/calc-cache-keys.js')
           await script({ os: "ubuntu", plan: "ghc-${{env.ghc}}", path: "cabal.project", core, glob })
     - name: Setup haskell
       uses: haskell-actions/setup@v2
