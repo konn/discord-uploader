@@ -80,6 +80,7 @@ jobs:
       run: |
         set -euxo pipefail
         pushd "${{steps.download.outputs.download-path}}"
+        tree
         chmod +x discord-uploader
         TARBALL=discord-uploader-${{github.ref_name}}-x86_64-linux.tar.gz
         tar czvf "${TARBALL}" discord-uploader
