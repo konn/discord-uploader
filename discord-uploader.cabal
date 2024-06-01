@@ -87,6 +87,7 @@ library
     http-types,
     lens,
     log-effectful,
+    log-effectful-extra,
     optparse-applicative,
     path-tagged,
     path-tagged-effectful,
@@ -101,7 +102,7 @@ library
     vector,
     yaml,
 
-executable discord-uploader-exe
+executable discord-uploader
   import: exe
   main-is: Main.hs
   hs-source-dirs: app

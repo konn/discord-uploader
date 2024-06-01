@@ -9,6 +9,7 @@ module Effectful.Network.Cloudflare.Workers.KV (
   KVError (..),
   KVMessage (..),
   ResultInfo (..),
+  NamespaceID (..),
 
   -- * API
   listKeys,
