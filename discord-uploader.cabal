@@ -69,7 +69,11 @@ common exe
 library
   import: defaults
   -- cabal-gild: discover src
-  exposed-modules: Development.GitHub.Discord.Upload
+  exposed-modules:
+    Development.GitHub.Discord.Upload
+    Effectful.Network.Cloudflare.Workers.KV
+    Effectful.Network.Discord
+
   hs-source-dirs: src
   build-depends:
     aeson,
@@ -80,6 +84,7 @@ library
     generic-lens,
     hashable,
     http-client,
+    http-types,
     lens,
     log-effectful,
     optparse-applicative,
