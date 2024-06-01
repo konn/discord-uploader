@@ -7,6 +7,8 @@ module Effectful.Network.Cloudflare.Workers.KV (
   ListKeysOptions (..),
   KVResponse (..),
   KVError (..),
+  Key (..),
+  KeyEntry (..),
   KVMessage (..),
   ResultInfo (..),
   NamespaceID (..),
@@ -24,6 +26,7 @@ module Effectful.Network.Cloudflare.Workers.KV (
 ) where
 
 import Control.Exception.Safe (throwString)
+import Control.Lens ((<&>))
 import Data.Aeson (FromJSON, FromJSONKey, ToJSON, ToJSONKey)
 import Data.Aeson qualified as A
 import Data.Aeson.Types qualified as A
@@ -42,16 +45,16 @@ import Effectful.Dispatch.Dynamic (interpret, send)
 import Effectful.Network.Http
 import GHC.Generics (Generic)
 import GHC.Natural (Natural)
-import Network.HTTP.Types (status200)
+import Network.HTTP.Types (status404)
 import Network.HTTP.Types.URI
 
 data KV :: Effect where
   DeleteKeys :: NamespaceID -> [Key] -> KV m (KVResponse ())
   ListKeys :: NamespaceID -> ListKeysOptions -> KV m (KVResponse [KeyInfo])
-  PutKeyValues :: NamespaceID -> [KeyValuePair] -> KV m (KVResponse ())
-  GetKeyMetadata :: NamespaceID -> Key -> KV m (KVResponse A.Value)
+  PutKeyValues :: (ToJSON a) => NamespaceID -> [KeyValuePair a] -> KV m (KVResponse ())
+  GetKeyMetadata :: (FromJSON a) => NamespaceID -> Key -> KV m (KVResponse a)
   DeleteKey :: NamespaceID -> Key -> KV m (KVResponse ())
-  GetKeyValue :: NamespaceID -> Key -> KV m (KVResponse T.Text)
+  GetKeyValue :: (FromJSON a) => NamespaceID -> Key -> KV m (Maybe (KeyEntry a))
   PutKeyValue :: (ToJSON a) => NamespaceID -> Key -> Maybe a -> T.Text -> KV m (KVResponse ())
 
 type instance DispatchOf KV = Dynamic
@@ -62,14 +65,18 @@ listKeys = fmap send . ListKeys
 deleteKeys :: (KV :> es) => NamespaceID -> [Key] -> Eff es (KVResponse ())
 deleteKeys = fmap send . DeleteKeys
 
-getKeyMetadata :: (KV :> es) => NamespaceID -> Key -> Eff es (KVResponse A.Value)
+getKeyMetadata ::
+  (FromJSON a, KV :> es) =>
+  NamespaceID ->
+  Key ->
+  Eff es (KVResponse a)
 getKeyMetadata = fmap send . GetKeyMetadata
 
-getKeyValue :: (KV :> es) => NamespaceID -> Key -> Eff es (KVResponse T.Text)
+getKeyValue :: (FromJSON a, KV :> es) => NamespaceID -> Key -> Eff es (Maybe (KeyEntry a))
 getKeyValue = fmap send . GetKeyValue
 
 putKeyValue ::
-  (KV :> es, ToJSON a) =>
+  (ToJSON a, KV :> es) =>
   NamespaceID ->
   Key ->
   Maybe a ->
@@ -77,54 +84,66 @@ putKeyValue ::
   Eff es (KVResponse ())
 putKeyValue = fmap (fmap $ fmap send) . PutKeyValue
 
-data KeyValuePair = KeyValuePair
+data KeyEntry a = KeyEntry {metadata :: !a, value :: !T.Text}
+  deriving (Show, Eq, Ord, Generic, Functor, Foldable, Traversable)
+  deriving anyclass (Hashable, FromJSON, ToJSON)
+
+data KeyValuePair a = KeyValuePair
   { base64 :: !(Maybe Bool)
   , expiration :: !(Maybe POSIXTime)
   , expiration_ttl :: !(Maybe Int)
   , key :: !T.Text
-  , metadata :: !(Maybe A.Value)
+  , metadata :: !(Maybe a)
   , value :: !T.Text
   }
-  deriving (Show, Eq, Ord, Generic)
+  deriving (Show, Eq, Ord, Generic, Functor, Foldable, Traversable)
   deriving anyclass (Hashable, FromJSON, ToJSON)
 
-putKeyValues :: (KV :> es) => NamespaceID -> [KeyValuePair] -> Eff es (KVResponse ())
+putKeyValues ::
+  (ToJSON a, KV :> es) =>
+  NamespaceID ->
+  [KeyValuePair a] ->
+  Eff es (KVResponse ())
 putKeyValues = fmap send . PutKeyValues
 
 deleteKey :: (KV :> es) => NamespaceID -> Key -> Eff es (KVResponse ())
 deleteKey = fmap send . DeleteKey
 
-data KeyInfo = KeyInfo {expiration :: POSIXTime, metadata :: A.Value, name :: Key}
+data KeyInfo = KeyInfo
+  { expiration :: Maybe POSIXTime
+  , metadata :: Maybe A.Value
+  , name :: Key
+  }
   deriving (Show, Eq, Ord, Generic)
   deriving anyclass (Hashable, FromJSON, ToJSON)
 
 data KVResponse a = KVResponse
-  { errors :: ![KVError]
-  , messages :: ![KVMessage]
+  { errors :: !(Maybe [KVError])
+  , messages :: !(Maybe [KVMessage])
   , result :: !(Maybe a)
-  , success :: !Bool
+  , success :: !(Maybe Bool)
   , result_info :: !(Maybe ResultInfo)
   }
   deriving (Show, Eq, Ord, Generic, Functor, Foldable, Traversable)
-  deriving anyclass (Hashable, FromJSON)
+  deriving anyclass (Hashable, FromJSON, ToJSON)
 
 data ResultInfo = ResultInfo {count :: !Int, cursor :: !(Maybe Cursor)}
   deriving (Show, Eq, Ord, Generic)
-  deriving anyclass (Hashable, FromJSON)
+  deriving anyclass (Hashable, FromJSON, ToJSON)
 
 data KVError = KVError
   { code :: !Int
   , message :: !T.Text
   }
   deriving (Show, Eq, Ord, Generic)
-  deriving anyclass (Hashable, FromJSON)
+  deriving anyclass (Hashable, FromJSON, ToJSON)
 
 data KVMessage = KVMessage
   { code :: !Int
   , message :: !T.Text
   }
   deriving (Show, Eq, Ord, Generic)
-  deriving anyclass (Hashable, FromJSON)
+  deriving anyclass (Hashable, FromJSON, ToJSON)
 
 newtype Cursor = Cursor {cursor :: T.Text}
   deriving (Show, Eq, Ord, Generic)
@@ -196,7 +215,7 @@ runKV cfg = interpret @KV \_localEs -> \case
   DeleteKeys ns keys -> do
     either throwString (pure . void @_ @A.Value)
       . A.eitherDecode
-      =<< checkStatus
+      . responseBody
       =<< httpLbs
         (mkKVNamespaceRequest cfg ns "bulk")
           { method = "DELETE"
@@ -205,7 +224,7 @@ runKV cfg = interpret @KV \_localEs -> \case
   PutKeyValues ns kvs -> do
     either throwString (pure . void @_ @A.Value)
       . A.eitherDecode
-      =<< checkStatus
+      . responseBody
       =<< httpLbs
         (mkKVNamespaceRequest cfg ns "bulk")
           { method = "PUT"
@@ -214,7 +233,7 @@ runKV cfg = interpret @KV \_localEs -> \case
   ListKeys ns opts -> do
     either throwString pure
       . A.eitherDecode
-      =<< checkStatus
+      . responseBody
       =<< httpLbs
         (mkKVNamespaceRequest cfg ns "keys")
           { method = "GET"
@@ -230,25 +249,31 @@ runKV cfg = interpret @KV \_localEs -> \case
   GetKeyMetadata ns key -> do
     either throwString pure
       . A.eitherDecode
-      =<< checkStatus
+      . responseBody
       =<< httpLbs
-        (mkKVNamespaceRequest cfg ns $ "metadata/" <> T.unpack key.key) {method = "GET"}
+        (mkKVNamespaceRequest cfg ns $ "metadata/" <> T.unpack key.key)
+          { method = "GET"
+          }
   DeleteKey ns key -> do
     either throwString (pure . void @_ @A.Value)
       . A.eitherDecode
-      =<< checkStatus
+      . responseBody
       =<< httpLbs
         (mkKVNamespaceRequest cfg ns $ "values/" <> T.unpack key.key) {method = "DELETE"}
   GetKeyValue ns key -> do
-    either throwString pure
-      . A.eitherDecode
-      =<< checkStatus
-      =<< httpLbs
-        (mkKVNamespaceRequest cfg ns $ "values/" <> T.unpack key.key) {method = "GET"}
+    mapM
+      ( either throwString pure
+          . A.eitherDecode
+          . responseBody
+      )
+      =<< try404'
+        ( httpLbs
+            (mkKVNamespaceRequest cfg ns $ "values/" <> T.unpack key.key) {method = "GET"}
+        )
   PutKeyValue ns key meta value -> do
     either throwString (pure . void @_ @A.Value)
       . A.eitherDecode
-      =<< checkStatus
+      . responseBody
       =<< httpLbs
         (mkKVNamespaceRequest cfg ns $ "values/" <> T.unpack key.key)
           { method = "PUT"
@@ -261,8 +286,12 @@ runKV cfg = interpret @KV \_localEs -> \case
                     ]
           }
 
-checkStatus :: Response a -> Eff es a
-checkStatus rsp =
-  if responseStatus rsp == status200
-    then pure $ responseBody rsp
-    else throwString $ "Unexpected status code: " <> show (responseStatus rsp)
+try404' :: Eff es (Response a) -> Eff es (Maybe (Response a))
+try404' act =
+  try404 act
+    <&> ( >>=
+            \rsp ->
+              if responseStatus rsp == status404
+                then Nothing
+                else Just rsp
+        )

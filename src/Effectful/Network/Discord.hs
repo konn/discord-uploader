@@ -14,8 +14,10 @@ module Effectful.Network.Discord (
   defaultCreateMessage,
   CreateMessage (..),
   editMessage,
+  defaultEditMessage,
   EditMessage (..),
   deleteMessage,
+  pinMessage,
 
   -- * Utils
   callDiscordAPI,
@@ -65,8 +67,8 @@ import Data.Text.Lens (packed)
 import Data.Time (ZonedTime)
 import Data.Time.Format.ISO8601 (ISO8601, iso8601ParseM, iso8601Show)
 import Data.Vector qualified as V
+import Data.Vector.Internal.Check (HasCallStack)
 import Effectful
-import Effectful.Dispatch.Static (unsafeEff_)
 import Effectful.Network.Http (Http, Request (..), RequestBody (..), Response (responseBody), httpLbs)
 import GHC.Generics (Generic (..))
 import Network.HTTP.Client.MultipartFormData qualified as MP
@@ -367,6 +369,17 @@ createMessage env channelID post = do
   req <- encodeAttachments post.attachments req0 post
   responseBody @Message <$> callDiscordAPIJSON env.discordToken req
 
+pinMessage ::
+  (Http :> es) =>
+  DiscordConfig ->
+  ID Channel ->
+  ID Message ->
+  Eff es ()
+pinMessage env channelID msgID = do
+  let req =
+        (mkDiscordRequest $ "/channels/" <> show channelID <> "/pins/" <> show msgID) {method = "PUT"}
+  void $ callDiscordAPI env.discordToken req
+
 editMessage ::
   (Http :> es, IOE :> es) =>
   DiscordConfig ->
@@ -377,7 +390,7 @@ editMessage ::
 editMessage env channelID msgID post = do
   let req0 = (mkDiscordRequest $ "/channels/" <> show channelID <> "/messages/" <> show msgID) {method = "PATCH"}
   req <- encodeAttachments post.attachments req0 post
-  responseBody <$> callDiscordAPIJSON env.discordToken req
+  responseBody <$> callDiscordAPIJSON env.discordToken req {method = "PATCH"}
 
 encodeAttachments ::
   (ToJSON a, IOE :> es) =>
@@ -428,6 +441,17 @@ data EditMessage = EditMessage
   deriving (Show, Generic)
   deriving (ToJSON) via DefaultJSON EditMessage
 
+defaultEditMessage :: EditMessage
+defaultEditMessage =
+  EditMessage
+    { content = Nothing
+    , embeds = Nothing
+    , flags = Nothing
+    , allowed_mentions = Nothing
+    , components = Nothing
+    , attachments = Nothing
+    }
+
 deleteMessage :: (Http :> es) => DiscordConfig -> ID Channel -> ID Message -> Eff es ()
 deleteMessage env channelID messageID = do
   let req =
@@ -443,18 +467,16 @@ mkDiscordRequest :: String -> Request
 mkDiscordRequest ep = fromString $ discordUrl <> "/" <> dropWhile (== '/') ep
 
 callDiscordAPIJSON ::
-  (Http :> es, FromJSON a) =>
+  (FromJSON a, Http :> es, HasCallStack) =>
   DiscordBotToken ->
   Request ->
   Eff es (Response a)
 callDiscordAPIJSON e =
   mapM (either throwString pure . A.eitherDecode)
-    <=< (\r -> r <$ unsafeEff_ (print $ responseBody r))
     <=< callDiscordAPI e
-    <=< (\rsp -> rsp <$ unsafeEff_ (print rsp))
 
 callDiscordAPI ::
-  (Http :> es) =>
+  (Http :> es, HasCallStack) =>
   DiscordBotToken ->
   Request ->
   Eff es (Response LazyByteString)
