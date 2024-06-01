@@ -83,5 +83,5 @@ jobs:
         chmod +x discord-uploader
         TARBALL=discord-uploader-${{github.ref_name}}-x86_64-linux.tar.gz
         tar czvf "${TARBALL}" discord-uploader
-        sha256sum "${TARBALL} >SHA256SUMS
+        sha256sum "${TARBALL}" >SHA256SUMS
         gh release create --draft -F ${{github.workspace}}/CHANGELOG.md -t "${{github.ref_name}}" "${TARBALL}" SHA256SUMS
