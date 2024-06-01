@@ -1,0 +1,62 @@
+name: Build
+on:
+  push: {branches: [main]}
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-22.04
+    env:
+      ghc: 9.6.5
+    steps:
+    - uses: actions/checkout@v3
+    - name: Calculate hash keys
+      uses: actions/github-script@v6
+      id: cache-keys
+      with:
+        script: |
+          const script = require('./ci/scripts/calc-cache-keys.js')
+          await script({ os: "ubuntu", plan: "ghc-${{env.ghc}}", path: "cabal.project", core, glob })
+    - name: Setup haskell
+      uses: haskell-actions/setup@v2
+      with:
+        ghc-version: 9.6.5
+        cabal-version: 3.10.3.0
+    - name: Restore ~/.cabal/store Cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cabal/store
+        key: ${{ steps.cache-keys.outputs.store }}
+        restore-keys: ${{ steps.cache-keys.outputs.store-restore }}
+    - name: Restore dist-newstyle Cache
+      uses: actions/cache/restore@v4
+      with:
+        path: dist-newstyle
+        key: ${{ steps.cache-keys.outputs.dist }}
+        restore-keys: ${{ steps.cache-keys.outputs.dist-restore }}
+    - name: Cabal update
+      run: cabal update
+    - name: Build dependencies
+      run: cabal build --only-dependencies
+    - name: Save ~/.cabal/store cache
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cabal/store
+        key: ${{ steps.cache-keys.outputs.store }}
+    - name: Build
+      run: cabal build
+    - name: Save dist-newstyle cache
+      uses: actions/cache/save@v4
+      with:
+        path: dist-newstyle
+        key: ${{ steps.cache-keys.outputs.dist }}
+    - name: Detect binary
+      id: detect
+      run: |
+        echo "bin=$(cabal list-bin -v0 discord-uploader)" >> "${GITHUB_OUTPUT}"
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: binary
+        path: ${{steps.detect.outputs.bin}}
+    
