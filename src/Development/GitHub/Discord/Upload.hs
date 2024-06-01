@@ -1,3 +1,5 @@
+{-# LANGUAGE QuasiQuotes #-}
+
 module Development.GitHub.Discord.Upload (
   defaultMain,
 ) where
@@ -25,10 +27,13 @@ import Data.Time (ZonedTime)
 import Data.Time.Format.ISO8601 (ISO8601, iso8601ParseM, iso8601Show)
 import Data.Vector qualified as V
 import Effectful
+import Effectful.Dispatch.Static (unsafeEff_)
 import Effectful.Environment
+import Effectful.FileSystem.Tagged (Cwd, readFileBinaryLazy, runFileSystem)
 import Effectful.Network.Http (Http, Request (..), RequestBody (..), Response (responseBody), httpLbs, runSimpleHttp)
 import GHC.Generics (Generic)
 import Network.HTTP.Client.MultipartFormData qualified as MP
+import Path.Tagged (File, PathTo, RelTo, relfile)
 import Text.Read (readEither)
 
 data Nonce = NonceText !T.Text | NonceInt !Int64
@@ -107,7 +112,6 @@ data CreateMessage = CreateMessage
   , message_reference :: Maybe MessageReference
   , components :: Maybe (V.Vector MessageComponent)
   , sticker_ids :: Maybe (V.Vector (ID Sticker))
-  , payload_json :: Maybe T.Text
   , attachments :: Maybe (V.Vector UploadableAttachment)
   , flags :: Maybe Int64
   , enforce_nonce :: Maybe Bool
@@ -131,7 +135,6 @@ defaultCreateMessage =
     , message_reference = Nothing
     , components = Nothing
     , sticker_ids = Nothing
-    , payload_json = Nothing
     , attachments = Nothing
     , flags = Nothing
     , enforce_nonce = Nothing
@@ -284,11 +287,27 @@ newtype ChannelMention = ChannelMention Value
 defaultMain :: IO ()
 defaultMain = runEff $ runEnvironment $ runSimpleHttp do
   env <- decodeDiscordEnv
+  src <-
+    runFileSystem $
+      readFileBinaryLazy
+        ([relfile|workspace/image.png|] :: PathTo "Image" (RelTo Cwd) File)
   liftIO . print
     =<< createMessage
       env
       env.discordChannel
-      (defaultCreateMessage & #content ?~ "Howdy!?")
+      ( defaultCreateMessage
+          & #content ?~ "Howdy!?"
+          & #attachments
+            ?~ V.fromList
+              [ UploadableAttachment
+                  { id = 0
+                  , filename = "image.png"
+                  , description = Just "タマムシの図示"
+                  , content_type = Just "image/png"
+                  , body = RequestBodyLBS src
+                  }
+              ]
+      )
 
 createMessage ::
   (Http :> es, IOE :> es) =>
@@ -298,16 +317,16 @@ createMessage ::
   Eff es Message
 createMessage env channelID post = do
   let req0 = (mkDiscordRequest $ "/channels/" <> show channelID <> "/messages") {method = "POST"}
-  req <- encodeBody post.attachments req0 post
+  req <- encodeAttachments post.attachments req0 post
   responseBody @Message <$> callDiscordAPIJSON env.discordToken req
 
-encodeBody ::
+encodeAttachments ::
   (ToJSON a, IOE :> es) =>
   Maybe (V.Vector UploadableAttachment) ->
   Request ->
   a ->
   Eff es Request
-encodeBody matts req payload
+encodeAttachments matts req payload
   | Just attchs <- matts
   , not $ V.null attchs = do
       let jsonPayload =
@@ -318,18 +337,17 @@ encodeBody matts req payload
             V.toList $
               V.imap
                 ( \i attch ->
-                    maybe
-                      id
-                      (\ct p -> p {MP.partContentType = Just $ TE.encodeUtf8 ct})
-                      attch.content_type
-                      $ MP.partFileRequestBody
-                        (T.pack $ "file[" <> show i <> "]")
+                    ( MP.partFileRequestBody
+                        (T.pack $ "files[" <> show i <> "]")
                         attch.filename
                         attch.body
+                    )
+                      { MP.partContentType = TE.encodeUtf8 <$> attch.content_type
+                      }
                 )
                 attchs
           ps = jsonPayload : files
-      MP.formDataBody ps req
+      MP.formDataBody ps req {requestBody = ""}
   | otherwise =
       pure
         req
@@ -346,10 +364,10 @@ data EditMessage = EditMessage
   , allowed_mentions :: !(V.Vector AllowedMention)
   , components :: !(V.Vector MessageComponent)
   , payload_json :: !T.Text
-  , attachments :: !(V.Vector Attachment)
+  , attachments :: !(V.Vector UploadableAttachment)
   }
-  deriving (Show, Eq, Ord, Generic)
-  deriving anyclass (FromJSON, ToJSON)
+  deriving (Show, Generic)
+  deriving anyclass (ToJSON)
 
 deleteMessage :: (Http :> es) => DiscordEnv -> ID Channel -> ID Message -> Eff es ()
 deleteMessage env channelID messageID = do
@@ -372,7 +390,9 @@ callDiscordAPIJSON ::
   Eff es (Response a)
 callDiscordAPIJSON e =
   mapM (either throwString pure . A.eitherDecode)
+    <=< (\r -> r <$ unsafeEff_ (print $ responseBody r))
     <=< callDiscordAPI e
+    <=< (\rsp -> rsp <$ unsafeEff_ (print rsp))
 
 callDiscordAPI ::
   (Http :> es) =>
