@@ -1,6 +1,6 @@
 name: Build
 on:
-  push: {branches: [main]}
+  push: {branches: [main], tags: v*}
 
 jobs:
   build:
@@ -53,10 +53,35 @@ jobs:
     - name: Detect binary
       id: detect
       run: |
-        echo "bin=$(cabal list-bin -v0 discord-uploader)" >> "${GITHUB_OUTPUT}"
+        cp "$(cabal list-bin -v0 discord-uploader)" ./discord-uploader
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: binary
-        path: ${{steps.detect.outputs.bin}}
-    
+        path: discord-uploader
+
+  release:
+    name: Release
+    needs: [build]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Download Artifact(s)
+      id: download
+      uses: actions/download-artifact@v4
+      with:
+        path: ${{ github.workspace }}/artifacts
+    - name: Make Release on GitHub
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euxo pipefail
+        pushd "${{steps.download.outputs.download-path}}"
+        chmod +x discord-uploader
+        TARBALL=discord-uploader-${{github.ref_name}}-x86_64-linux.tar.gz
+        tar czvf "${TARBALL}" discord-uploader
+        sha256sum TARBALL >SHA256SUMS
+        gh release create --draft -F ${{github.workspace}}/CHANGELOG.md -t "${{github.ref_name}}" "${TARBALL}" SHA256SUMS
