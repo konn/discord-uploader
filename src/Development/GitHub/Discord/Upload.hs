@@ -202,7 +202,6 @@ noteKey = fromString . fromRelFile . (.file)
 decodeDiscordConfig :: (Environment :> es) => Eff es DiscordConfig
 decodeDiscordConfig = do
   discordAppID <- BS8.pack <$> getEnv "DISCORD_APP_ID"
-  discordPubKey <- BS8.pack <$> getEnv "DISCORD_PUBLIC_KEY"
   discordToken <- DiscordBotToken . BS8.pack <$> getEnv "DISCORD_TOKEN"
   discordChannel <- either throwString pure . readEither =<< getEnv "DISCORD_CHANNEL"
   pure DiscordConfig {..}

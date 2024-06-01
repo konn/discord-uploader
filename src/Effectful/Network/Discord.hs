@@ -114,7 +114,6 @@ instance FromJSON Nonce where
 
 data DiscordConfig = DiscordConfig
   { discordAppID :: !BS.ByteString
-  , discordPubKey :: !BS.ByteString
   , discordToken :: !DiscordBotToken
   , discordChannel :: !(ID Channel)
   }
