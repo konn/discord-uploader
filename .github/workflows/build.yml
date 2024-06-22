@@ -1,13 +1,14 @@
 name: Build
 on:
   push: {branches: [main], tags: v*}
+  pull_request:
 
 jobs:
   build:
     name: Build
     runs-on: ubuntu-22.04
     env:
-      ghc: 9.6.5
+      ghc: 9.10.1
     steps:
     - uses: actions/checkout@v3
     - name: Calculate hash keys
@@ -20,7 +21,7 @@ jobs:
     - name: Setup haskell
       uses: haskell-actions/setup@v2
       with:
-        ghc-version: 9.6.5
+        ghc-version: 9.10.1
         cabal-version: 3.10.3.0
     - name: Restore ~/.cabal/store Cache
       uses: actions/cache/restore@v4
