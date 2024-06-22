@@ -118,5 +118,5 @@ test-suite discord-uploader-test
   main-is: Spec.hs
   hs-source-dirs: test
   -- cabal-gild: discover test --exclude=test/Spec.hs
-  other-modules:
+  other-modules: Spec
   build-depends: discord-uploader
