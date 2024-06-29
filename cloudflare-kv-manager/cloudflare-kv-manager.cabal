@@ -50,17 +50,24 @@ common defaults
 
 library
   import: defaults
-  -- cabal-gild: discover src
+  -- cabal-gild: discover --include=src/**/*.hs src
   exposed-modules: Development.GitHub.Discord.Upload.Worker
   hs-source-dirs: src
   build-depends:
     aeson,
+    base64-bytestring,
     bytestring,
+    cloudflare-kv-manager-core,
     cloudflare-worker,
     containers,
+    effectful,
     ghc-wasm-compat,
     ghc-wasm-jsobjects,
+    integer-logarithms,
+    safe-exceptions,
+    steward-workers,
     text,
+    time-effectful,
     wasm-linear-base,
     web-sys-hs,
 

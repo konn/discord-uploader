@@ -78,9 +78,11 @@ library
   build-depends:
     aeson,
     bytestring,
+    cloudflare-kv-manager-core,
     deepseq,
     effectful,
     effectful-lens,
+    foldl,
     generic-lens,
     hashable,
     http-client,
@@ -94,6 +96,9 @@ library
     random-effectful,
     resourcet-effectful,
     safe-exceptions,
+    steward-client,
+    steward-core,
+    streaming,
     streaming-SHA,
     streaming-bytestring,
     streaming-effectful,
@@ -117,6 +122,6 @@ test-suite discord-uploader-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   hs-source-dirs: test
-  -- cabal-gild: discover test --exclude=test/Spec.hs
-  other-modules: Spec
+  -- cabal-gild: discover test --include=test/**/*.hs --exclude=test/Spec.hs
+  other-modules:
   build-depends: discord-uploader

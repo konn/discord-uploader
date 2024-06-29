@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 module Development.GitHub.Discord.Upload (
@@ -9,6 +10,7 @@ module Development.GitHub.Discord.Upload (
 
 import Control.Applicative ((<**>))
 import Control.Exception.Safe (Exception (..), throwString, tryAny)
+import Control.Foldl qualified as L
 import Control.Lens
 import Control.Monad (forM_, guard)
 import Data.Aeson qualified as A
@@ -28,17 +30,29 @@ import Effectful
 import Effectful.Environment
 import Effectful.FileSystem.Tagged (Cwd, makeAbsolute, readFileBinaryStrict, runFileSystem)
 import Effectful.Log.Extra (Log, LogLevel (..), localDomain, logInfo_, logTrace, runStdErrLogger)
-import Effectful.Network.Cloudflare.Workers.KV
+import Effectful.Network.Cloudflare.Workers.KV (
+  KV,
+  KVConfig (..),
+  Key (name),
+  KeyEntry (metadata, value),
+  ListKeys (ListKeys, cursor, limit, prefix),
+  deleteKey,
+  getKeyValue,
+  listAllKeys,
+  putKeyValue,
+  runKV,
+ )
 import Effectful.Network.Discord
 import Effectful.Network.Http (Http, runSimpleHttp, toRequestBody)
 import Effectful.Reader.Static (Reader, ask, runReader)
-import Effectful.Reader.Static.Lens qualified as EffL
 import Effectful.Resource
 import Effectful.Time (Clock, getZonedTime, runClock)
 import GHC.Generics (Generic)
 import Options.Applicative qualified as Opts
 import Path.Tagged (File, PathTo, RelTo, SomeBase (..), fromRelFile, parseSomeFile, relfile)
+import Steward.Client.Effectful (parseURI)
 import Streaming.ByteString qualified as EffQ
+import Streaming.Prelude qualified as S
 import Text.Read (readEither)
 
 newtype Notes = Notes {notes :: [Note]}
@@ -103,13 +117,15 @@ defaultMainWith opts = runEff $ runEnvironment $ runSimpleHttp do
                   mapM_ uploadNote notes.notes
               pruneUnusedKeys notes
 
-pruneUnusedKeys :: (KV :> es, Reader KVParams :> es, Log :> es, Http :> es, Reader DiscordConfig :> es) => Notes -> Eff es ()
+pruneUnusedKeys ::
+  (KV :> es, Log :> es, Http :> es, Reader DiscordConfig :> es) =>
+  Notes ->
+  Eff es ()
 pruneUnusedKeys notes = localDomain "pruneUnusedKeys" do
   let living = HS.fromList $ mapMaybe (\note -> noteKey note <$ guard (Just True /= note.draft)) notes.notes
-  ns <- EffL.view @KVParams #namespace
   oldKeys <-
-    maybe mempty (HS.fromList . map (.name)) . (.result)
-      <$> listKeys ns ListKeysOptions {prefix = Nothing, limit = Nothing, cursor = Nothing}
+    listAllKeys ListKeys {prefix = Nothing, limit = Nothing, cursor = Nothing}
+      & L.purely S.fold_ (L.premap (T.pack . (.name)) L.hashSet)
   let redundants = oldKeys `HS.difference` living
   logTrace "living keys" living
   logTrace "old keys" oldKeys
@@ -117,10 +133,10 @@ pruneUnusedKeys notes = localDomain "pruneUnusedKeys" do
   disco <- ask @DiscordConfig
   forM_ redundants $ \key -> do
     logTrace "Deleting key" key
-    m <- getKeyValue @Message ns key
+    m <- getKeyValue @Message key
     forM_ m \resl ->
       deleteMessage disco resl.metadata.channel_id resl.metadata.id
-    void $ tryAny $ deleteKey ns key
+    void $ tryAny $ deleteKey key
 
 noteAnnounce ::
   (Http :> es, IOE :> es, Resource :> es, Clock :> es, Log :> es) =>
@@ -161,8 +177,7 @@ noteAnnounce note oldEntry = localDomain "noteAnnounce" do
         pure (msg, digest)
 
 uploadNote ::
-  ( Reader KVParams :> es
-  , KV :> es
+  ( KV :> es
   , Resource :> es
   , Reader DiscordConfig :> es
   , Http :> es
@@ -175,17 +190,16 @@ uploadNote ::
 uploadNote note
   | fromMaybe False note.draft = pure ()
   | otherwise = localDomain ("note: " <> note.name) do
-      ns <- EffL.view @KVParams #namespace
       disco <- ask @DiscordConfig
       let key = noteKey note
-      mvmeta <- getKeyValue @Message ns key
+      mvmeta <- getKeyValue @Message key
       mProc <- noteAnnounce note mvmeta
       forM_ mProc \(msgBody, digest) -> do
         case mvmeta of
           Nothing -> do
             logInfo_ "No key found"
             msg <- createMessage disco disco.discordChannel msgBody
-            void $ putKeyValue ns (noteKey note) (Just msg) digest
+            void $ putKeyValue (noteKey note) (Just msg) digest
             pinMessage disco disco.discordChannel msg.id
           Just msg -> do
             logInfo_ "Key found"
@@ -194,9 +208,9 @@ uploadNote note
                 defaultEditMessage
                   & #content .~ msgBody.content
                   & #attachments .~ msgBody.attachments
-            void $ putKeyValue ns (noteKey note) (Just newMsg) digest
+            void $ putKeyValue (noteKey note) (Just newMsg) digest
 
-noteKey :: Note -> Key
+noteKey :: Note -> T.Text
 noteKey = fromString . fromRelFile . (.file)
 
 decodeDiscordConfig :: (Environment :> es) => Eff es DiscordConfig
@@ -208,13 +222,12 @@ decodeDiscordConfig = do
 
 data KVParams = KVParams
   { config :: !KVConfig
-  , namespace :: !NamespaceID
   }
   deriving (Show, Eq, Ord, Generic)
 
 decodeKVConfig :: (Environment :> es) => Eff es KVParams
 decodeKVConfig = do
-  accountId <- getEnv "CF_ACCOUNT_ID"
-  namespace <- fromString <$> getEnv "CF_KV_NAMESPACE"
-  apiKey <- fromString <$> getEnv "CF_API_KEY"
+  endpoint <-
+    maybe (throwString "Invalid URI") pure . parseURI
+      =<< getEnv "KV_ENDPOINT"
   pure KVParams {config = KVConfig {..}, ..}

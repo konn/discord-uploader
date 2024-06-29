@@ -1,75 +1,80 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DisambiguateRecordFields #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 
-module Development.GitHub.Discord.Upload.Worker (handlers, JSHandlers, JSObject (..)) where
+module Development.GitHub.Discord.Upload.Worker (
+  handlers,
+  JSHandlers,
+  JSObject (..),
+) where
 
+import Control.Exception.Safe (throwString)
 import qualified Data.Aeson as J
 import qualified Data.Text as T
+import Effectful
+import Effectful.Dispatch.Static (unsafeEff_)
+import Effectful.Time (runClock)
 import GHC.Wasm.Object.Builtins
-import GHC.Wasm.Prim
-import GHC.Wasm.Web.Generated.Headers (js_fun_get_ByteString_nullable_ByteString)
 import Network.Cloudflare.Worker.Binding
 import Network.Cloudflare.Worker.Binding.KV
 import qualified Network.Cloudflare.Worker.Binding.KV as KV
 import Network.Cloudflare.Worker.Handler
 import Network.Cloudflare.Worker.Handler.Fetch
-import qualified Network.Cloudflare.Worker.Request as Req
-import Network.Cloudflare.Worker.Response (newResponse)
-import qualified Network.Cloudflare.Worker.Response as Resp
+import Network.Cloudflare.Worker.KVManager.Types (KVManager (..))
+import Steward.Workers
 
-type DiscoKVEnvClass = BindingsClass '["CF_TEAM_NAME"] '["CF_AUD_TAG"] '[ '("KV", KVClass)]
+type DiscoKVEnv = BindingsClass '["CF_TEAM_NAME"] '["CF_AUD_TAG"] '[ '("KV", KVClass)]
 
-type KVFetcher = FetchHandler DiscoKVEnvClass
+type KVFetcher = FetchHandler DiscoKVEnv
 
 handlers :: IO JSHandlers
 handlers = toJSHandlers Handlers {fetch = kvWorker}
 
 kvWorker :: KVFetcher
-kvWorker req env _ctx = do
-  let hdrs = Req.getHeaders req
-  cfAuth <-
-    traverse toHaskellByteString . fromNullable
-      =<< js_fun_get_ByteString_nullable_ByteString hdrs
-      =<< fromHaskellByteString "Cf-Access-Jwt-Assertion"
-  case cfAuth of
-    Nothing -> do
-      newResponse
-        Resp.SimpleResponseInit
-          { Resp.statusText = "Unauthorized"
-          , Resp.status = 401
-          , Resp.body = "Missing Cf-Access-Jwt-Assertion header"
-          , Resp.headers = mempty
-          }
-    Just _ -> do
-      case J.fromJSON $ getEnv "CF_TEAM_NAME" env of
-        J.Error e -> do
-          newResponse
-            Resp.SimpleResponseInit
-              { Resp.statusText = "Internal Server Error"
-              , Resp.status = 500
-              , Resp.body = "Failed to decode CF_TEAM_NAME: " <> T.pack e
-              , Resp.headers = mempty
-              }
-        J.Success team -> do
-          let kv = getBinding "KV" env
-              audTag = getSecret "CF_AUD_TAG" env
-              certUrl = "https://" <> team <> ".cloudflareaccess.com/cdn-cgi/access/certs"
-          resp <- js_fetch $ toJSString certUrl
-          mb <- fromNullable <$> Resp.getBody resp
-          case mb of
-            Nothing -> pure ()
-            Just {} -> pure ()
-          -- TODO: verify here
-          keys <- KV.listKeys kv KV.ListKeys {limit = Nothing, prefix = Nothing, cursor = Nothing}
-          newResponse
-            Resp.SimpleResponseInit
-              { Resp.statusText = "OK"
-              , Resp.status = 200
-              , Resp.body = "Keys traversed: " <> T.pack (show keys)
-              , Resp.headers = mempty
-              }
+kvWorker = runWorker $ runClock do
+  env <- getWorkerEnv @DiscoKVEnv
+  let !rawTeam = getEnv "CF_TEAM_NAME" env
+  teamName <- case J.fromJSON rawTeam of
+    J.Error e ->
+      throwString $
+        "Could not parse CF_TEAM_NAME (" <> show rawTeam <> "): " <> e
+    J.Success x -> pure x
+  let !appAudienceID = T.pack $ getSecret "CF_AUD_TAG" env
+      !authCfg = CloudflareTunnelConfig {..}
+  withCloudflareTunnelAuth @DiscoKVEnv authCfg (const $ pure True) $
+    const $
+      fromHandlers @DiscoKVEnv apiEndpoints
 
-foreign import javascript unsafe "fetch($1)"
-  js_fetch :: JSString -> IO Resp.WorkerResponse
+apiEndpoints :: (Worker DiscoKVEnv :> es) => KVManager (Handler (Eff es))
+apiEndpoints =
+  KVManager
+    { put = Handler handlePut
+    , listKeys = Handler handleListKeys
+    , get = Handler handleGet
+    , delete = Handler handleDelete
+    }
+
+withKV :: (Worker DiscoKVEnv :> es) => (KV -> IO a) -> Eff es a
+withKV f = do
+  !kv <- getBinding "KV" <$> getWorkerEnv @DiscoKVEnv
+  unsafeEff_ $ f kv
+
+handleDelete :: (Worker DiscoKVEnv :> es) => T.Text -> Eff es ()
+handleDelete key = withKV $ \kv -> KV.delete kv $ T.unpack key
+
+handleGet :: (Worker DiscoKVEnv :> es) => T.Text -> Eff es (Maybe ValueWithMetadata)
+handleGet key = withKV \kv -> KV.getWithMetadata kv $ T.unpack key
+
+handleListKeys :: (Worker DiscoKVEnv :> es) => ListKeys -> Eff es ListKeyResult
+handleListKeys opts =
+  either throwString pure =<< withKV \kv -> KV.listKeys kv opts
+
+handlePut :: (Worker DiscoKVEnv :> es) => PutOptions -> T.Text -> T.Text -> Eff es ()
+handlePut opts k v = withKV \kv -> KV.put kv opts (T.unpack k) $ T.unpack v

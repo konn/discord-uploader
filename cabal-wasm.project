@@ -1,6 +1,6 @@
 with-compiler: wasm32-wasi-ghc-9.10.0.20240412
 import: cabal-common.project
-packages: cloudflare-kv-manager/*.cabal
+packages: cloudflare-kv-manager/*.cabal, cloudflare-kv-manager-core/*.cabal
 optimization: False
 active-repositories: hackage.haskell.org
 allow-newer:
