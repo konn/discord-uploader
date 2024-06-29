@@ -3,9 +3,11 @@ name = "forcing-note-upload"
 main = "src/worker.js"
 compatibility_date = "2024-06-14"
 compatibility_flags = ["nodejs_compat"]
-[vars]
-CF_TEAM_NAME = "konn-san"
 
 kv_namespaces = [
   { binding = "KV", id = "c759f6fb0a3e4b72abff1dc2e824a24e" }
 ]
+
+[vars]
+CF_TEAM_NAME = "konn-san"
+

@@ -24,7 +24,7 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/konn/ghc-wasm-earthly
-  tag: f54305d3f9f1cde6e0ae85acabbf0ce0284d69ee
+  tag: 087bc01080f4ca08041dc3ed6653b6a39644a4e1
   subdir:
     cloudflare-worker
     ghc-wasm-compat
