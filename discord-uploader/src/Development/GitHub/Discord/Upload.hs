@@ -1,3 +1,4 @@
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE QuasiQuotes #-}
 
@@ -9,9 +10,8 @@ module Development.GitHub.Discord.Upload (
 ) where
 
 import Control.Applicative ((<**>))
-import Control.Exception (ExceptionWithContext (..))
 import Control.Exception.Context (displayExceptionContext)
-import Control.Exception.Safe (Exception (..), SomeException (..), handle, throwIO, throwString, tryAny)
+import Control.Exception.Safe (Exception (..), SomeException (..), handleAny, throwIO, throwString, tryAny)
 import Control.Foldl qualified as L
 import Control.Lens
 import Control.Monad (forM_, guard)
@@ -49,6 +49,7 @@ import Effectful.Reader.Static (Reader, ask, runReader)
 import Effectful.Resource
 import Effectful.Time (Clock, getZonedTime, runClock)
 import GHC.Generics (Generic)
+import GHC.Stack (HasCallStack)
 import Options.Applicative qualified as Opts
 import Path.Tagged (File, PathTo, RelTo, SomeBase (..), fromRelFile, parseSomeFile, relfile)
 import Steward.Client (ServiceToken (..))
@@ -98,7 +99,7 @@ optionsP =
               <> Opts.help "Path to the configuration file"
           )
 
-defaultMainWith :: Options -> IO ()
+defaultMainWith :: (HasCallStack) => Options -> IO ()
 defaultMainWith opts = runEff $ runEnvironment $ runSimpleHttp do
   discord <- decodeDiscordConfig
   kvs <- decodeKVConfig
@@ -109,7 +110,7 @@ defaultMainWith opts = runEff $ runEnvironment $ runSimpleHttp do
         =<< makeAbsolute opts.config
 
   runClock $
-    runStdErrLogger "uploader" LogTrace $ handle report do
+    runStdErrLogger "uploader" LogTrace $ handleAny report do
       runReader discord $
         runReader kvs $
           runStewardClient kvs.config.endpoint $
@@ -119,14 +120,14 @@ defaultMainWith opts = runEff $ runEnvironment $ runSimpleHttp do
                   mapM_ uploadNote notes.notes
                 pruneUnusedKeys notes
 
-report :: (Log :> es) => ExceptionWithContext SomeException -> Eff es a
-report (ExceptionWithContext stk exc) = do
+report :: (Log :> es) => SomeException -> Eff es a
+report (SomeException exc) = do
   logAttention_ $ "Exception: " <> T.pack (displayException exc)
-  logAttention_ $ "Backtrace: " <> T.pack (displayExceptionContext stk)
+  logAttention_ $ "Backtrace: " <> T.pack (displayExceptionContext ?exceptionContext)
   throwIO exc
 
 pruneUnusedKeys ::
-  (KV :> es, Log :> es, Http :> es, Reader DiscordConfig :> es) =>
+  (KV :> es, Log :> es, Http :> es, Reader DiscordConfig :> es, HasCallStack) =>
   Notes ->
   Eff es ()
 pruneUnusedKeys notes = localDomain "pruneUnusedKeys" do
@@ -147,7 +148,7 @@ pruneUnusedKeys notes = localDomain "pruneUnusedKeys" do
     void $ tryAny $ deleteKey key
 
 noteAnnounce ::
-  (Http :> es, IOE :> es, Resource :> es, Clock :> es, Log :> es) =>
+  (Http :> es, IOE :> es, Resource :> es, Clock :> es, Log :> es, HasCallStack) =>
   Note ->
   Maybe (KeyEntry Message) ->
   Eff es (Maybe (CreateMessage, T.Text))
@@ -192,6 +193,7 @@ uploadNote ::
   , IOE :> es
   , Clock :> es
   , Log :> es
+  , HasCallStack
   ) =>
   Note ->
   Eff es ()
@@ -238,7 +240,7 @@ data KVParams = KVParams
   }
   deriving (Show, Eq, Ord, Generic)
 
-decodeKVConfig :: (Environment :> es) => Eff es KVParams
+decodeKVConfig :: (HasCallStack, Environment :> es) => Eff es KVParams
 decodeKVConfig = do
   endpoint <-
     maybe (throwString "Invalid URI") pure . parseURI

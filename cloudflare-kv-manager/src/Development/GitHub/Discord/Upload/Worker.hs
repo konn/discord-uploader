@@ -29,6 +29,7 @@ import qualified Data.Text.Lazy.Encoding as LTE
 import Effectful
 import Effectful.Dispatch.Static (unsafeEff_)
 import Effectful.Time (runClock)
+import GHC.Stack (HasCallStack)
 import GHC.Wasm.Object.Builtins
 import Network.Cloudflare.Worker.Binding
 import Network.Cloudflare.Worker.Binding.KV
@@ -45,7 +46,7 @@ type KVFetcher = FetchHandler DiscoKVEnv
 handlers :: IO JSHandlers
 handlers = toJSHandlers Handlers {fetch = kvWorker}
 
-kvWorker :: KVFetcher
+kvWorker :: (HasCallStack) => KVFetcher
 kvWorker = runWorker $ runClock do
   env <- getWorkerEnv @DiscoKVEnv
   let !rawTeam = getEnv "CF_TEAM_NAME" env
@@ -82,11 +83,11 @@ handleGet key = withKV \kv ->
   KV.get kv (T.unpack key) <&> fmap \src ->
     fromMaybe ValueWithMetadata {value = src, metadata = Nothing} $ J.decode $ LTE.encodeUtf8 $ LT.pack src
 
-handleListKeys :: (Worker DiscoKVEnv :> es) => ListKeys -> Eff es ListKeyResult
+handleListKeys :: (HasCallStack, Worker DiscoKVEnv :> es) => ListKeys -> Eff es ListKeyResult
 handleListKeys opts =
   either throwString pure =<< withKV \kv -> KV.listKeys kv opts
 
-handlePut :: (Worker DiscoKVEnv :> es) => PutOptions -> T.Text -> T.Text -> Eff es ()
+handlePut :: (HasCallStack, Worker DiscoKVEnv :> es) => PutOptions -> T.Text -> T.Text -> Eff es ()
 handlePut opts k v = withKV \kv ->
   KV.put kv opts {KV.metadata = Nothing} (T.unpack k) $
     LT.unpack $
