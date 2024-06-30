@@ -1,6 +1,6 @@
 cabal-version: 3.0
 name: discord-uploader
-version: 0.2.0.2
+version: 0.2.0.3
 description: Please see the README on GitHub at <https://github.com/konn/discord-uploader#readme>
 homepage: https://github.com/konn/discord-uploader#readme
 bug-reports: https://github.com/konn/discord-uploader/issues
