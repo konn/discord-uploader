@@ -9,7 +9,9 @@ module Development.GitHub.Discord.Upload (
 ) where
 
 import Control.Applicative ((<**>))
-import Control.Exception.Safe (Exception (..), throwString, tryAny)
+import Control.Exception (ExceptionWithContext (..))
+import Control.Exception.Context (displayExceptionContext)
+import Control.Exception.Safe (Exception (..), SomeException (..), handle, throwIO, throwString, tryAny)
 import Control.Foldl qualified as L
 import Control.Lens
 import Control.Monad (forM_, guard)
@@ -29,7 +31,7 @@ import Data.Yaml.Aeson qualified as Y
 import Effectful
 import Effectful.Environment
 import Effectful.FileSystem.Tagged (Cwd, makeAbsolute, readFileBinaryStrict, runFileSystem)
-import Effectful.Log.Extra (Log, LogLevel (..), localDomain, logInfo_, logTrace, runStdErrLogger)
+import Effectful.Log.Extra (Log, LogLevel (..), localDomain, logAttention_, logInfo_, logTrace, runStdErrLogger)
 import Effectful.Network.Cloudflare.Workers.KV (
   KV,
   Key (name),
@@ -107,7 +109,7 @@ defaultMainWith opts = runEff $ runEnvironment $ runSimpleHttp do
         =<< makeAbsolute opts.config
 
   runClock $
-    runStdErrLogger "uploader" LogTrace $
+    runStdErrLogger "uploader" LogTrace $ handle report do
       runReader discord $
         runReader kvs $
           runStewardClient kvs.config.endpoint $
@@ -115,8 +117,13 @@ defaultMainWith opts = runEff $ runEnvironment $ runSimpleHttp do
               runKV $ do
                 runResource $ runFileSystem $ do
                   mapM_ uploadNote notes.notes
-                pruneUnusedKeys
-                  notes
+                pruneUnusedKeys notes
+
+report :: (Log :> es) => ExceptionWithContext SomeException -> Eff es a
+report (ExceptionWithContext stk exc) = do
+  logAttention_ $ "Exception: " <> T.pack (displayException exc)
+  logAttention_ $ "Backtrace: " <> T.pack (displayExceptionContext stk)
+  throwIO exc
 
 pruneUnusedKeys ::
   (KV :> es, Log :> es, Http :> es, Reader DiscordConfig :> es) =>
