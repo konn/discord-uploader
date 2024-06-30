@@ -1,9 +1,13 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DisambiguateRecordFields #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
@@ -17,7 +21,11 @@ module Development.GitHub.Discord.Upload.Worker (
 
 import Control.Exception.Safe (throwString)
 import qualified Data.Aeson as J
+import Data.Functor ((<&>))
+import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as LT
+import qualified Data.Text.Lazy.Encoding as LTE
 import Effectful
 import Effectful.Dispatch.Static (unsafeEff_)
 import Effectful.Time (runClock)
@@ -70,11 +78,21 @@ handleDelete :: (Worker DiscoKVEnv :> es) => T.Text -> Eff es ()
 handleDelete key = withKV $ \kv -> KV.delete kv $ T.unpack key
 
 handleGet :: (Worker DiscoKVEnv :> es) => T.Text -> Eff es (Maybe ValueWithMetadata)
-handleGet key = withKV \kv -> KV.getWithMetadata kv $ T.unpack key
+handleGet key = withKV \kv ->
+  KV.get kv (T.unpack key) <&> fmap \src ->
+    fromMaybe ValueWithMetadata {value = src, metadata = Nothing} $ J.decode $ LTE.encodeUtf8 $ LT.pack src
 
 handleListKeys :: (Worker DiscoKVEnv :> es) => ListKeys -> Eff es ListKeyResult
 handleListKeys opts =
   either throwString pure =<< withKV \kv -> KV.listKeys kv opts
 
 handlePut :: (Worker DiscoKVEnv :> es) => PutOptions -> T.Text -> T.Text -> Eff es ()
-handlePut opts k v = withKV \kv -> KV.put kv opts (T.unpack k) $ T.unpack v
+handlePut opts k v = withKV \kv ->
+  KV.put kv opts {KV.metadata = Nothing} (T.unpack k) $
+    LT.unpack $
+      LTE.decodeUtf8 $
+        J.encode $
+          ValueWithMetadata
+            { value = T.unpack v
+            , metadata = opts.metadata
+            }
