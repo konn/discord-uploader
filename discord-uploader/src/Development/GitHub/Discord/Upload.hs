@@ -32,7 +32,6 @@ import Effectful.FileSystem.Tagged (Cwd, makeAbsolute, readFileBinaryStrict, run
 import Effectful.Log.Extra (Log, LogLevel (..), localDomain, logInfo_, logTrace, runStdErrLogger)
 import Effectful.Network.Cloudflare.Workers.KV (
   KV,
-  KVConfig (..),
   Key (name),
   KeyEntry (metadata, value),
   ListKeys (ListKeys, cursor, limit, prefix),
@@ -50,7 +49,8 @@ import Effectful.Time (Clock, getZonedTime, runClock)
 import GHC.Generics (Generic)
 import Options.Applicative qualified as Opts
 import Path.Tagged (File, PathTo, RelTo, SomeBase (..), fromRelFile, parseSomeFile, relfile)
-import Steward.Client.Effectful (parseURI)
+import Steward.Client (ServiceToken (..))
+import Steward.Client.Effectful (URI, parseURI, runStewardClient, withCloudflareServiceTokenAuth)
 import Streaming.ByteString qualified as EffQ
 import Streaming.Prelude qualified as S
 import Text.Read (readEither)
@@ -108,14 +108,15 @@ defaultMainWith opts = runEff $ runEnvironment $ runSimpleHttp do
 
   runClock $
     runStdErrLogger "uploader" LogTrace $
-      runSimpleHttp $
-        runReader discord $
-          runReader kvs $
-            runKV kvs.config $ do
-              runResource $
-                runFileSystem $
+      runReader discord $
+        runReader kvs $
+          runStewardClient kvs.config.endpoint $
+            withCloudflareServiceTokenAuth kvs.serviceToken $
+              runKV $ do
+                runResource $ runFileSystem $ do
                   mapM_ uploadNote notes.notes
-              pruneUnusedKeys notes
+                pruneUnusedKeys
+                  notes
 
 pruneUnusedKeys ::
   (KV :> es, Log :> es, Http :> es, Reader DiscordConfig :> es) =>
@@ -220,8 +221,13 @@ decodeDiscordConfig = do
   discordChannel <- either throwString pure . readEither =<< getEnv "DISCORD_CHANNEL"
   pure DiscordConfig {..}
 
+data KVConfig = KVConfig {endpoint :: !URI}
+  deriving (Show, Eq, Ord, Generic)
+  deriving anyclass (A.FromJSON, A.ToJSON)
+
 data KVParams = KVParams
   { config :: !KVConfig
+  , serviceToken :: !ServiceToken
   }
   deriving (Show, Eq, Ord, Generic)
 
@@ -230,4 +236,7 @@ decodeKVConfig = do
   endpoint <-
     maybe (throwString "Invalid URI") pure . parseURI
       =<< getEnv "KV_ENDPOINT"
+  clientID <- BS8.pack <$> getEnv "KV_CLIENT_ID"
+  clientSecret <- BS8.pack <$> getEnv "KV_CLIENT_SECRET"
+  let serviceToken = ServiceToken {..}
   pure KVParams {config = KVConfig {..}, ..}

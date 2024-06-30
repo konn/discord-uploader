@@ -4,7 +4,6 @@
 
 module Effectful.Network.Cloudflare.Workers.KV (
   KV,
-  KVConfig (..),
   runKV,
   KVError (..),
   KeyEntry (..),
@@ -32,10 +31,10 @@ import Data.Generics.Labels ()
 import Data.Hashable (Hashable)
 import Data.Text qualified as T
 import Effectful
-import Effectful.Dispatch.Dynamic (reinterpret, send)
+import Effectful.Dispatch.Dynamic (interpret, send)
 import GHC.Generics (Generic)
 import Network.Cloudflare.Worker.KVManager.Types
-import Steward.Client.Effectful (StewardClient, URI, runStewardClient)
+import Steward.Client.Effectful (StewardClient)
 import Steward.Types
 import Streaming (lift)
 import Streaming.Prelude qualified as S
@@ -83,16 +82,12 @@ data KVMessage = KVMessage
   deriving (Show, Eq, Ord, Generic)
   deriving anyclass (Hashable, FromJSON, ToJSON)
 
-data KVConfig = KVConfig {endpoint :: !URI}
-  deriving (Show, Eq, Ord, Generic)
-  deriving anyclass (FromJSON, ToJSON)
-
 effClient :: (StewardClient :> es) => KVManager (Client (Eff es))
 effClient = client
 
-runKV :: (IOE :> es) => KVConfig -> Eff (KV : es) a -> Eff es a
-runKV cfg =
-  reinterpret @KV (runStewardClient cfg.endpoint) \_localEs -> \case
+runKV :: (StewardClient :> es) => Eff (KV : es) a -> Eff es a
+runKV =
+  interpret @KV \_localEs -> \case
     ListKeys_ opts -> effClient.listKeys.call opts
     DeleteKey key -> effClient.delete.call key
     GetKeyValue key -> do
