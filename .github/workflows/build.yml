@@ -38,14 +38,14 @@ jobs:
     - name: Cabal update
       run: cabal update
     - name: Build dependencies
-      run: cabal build all --only-dependencies
+      run: cabal build discord-uploader --only-dependencies
     - name: Save ~/.cabal/store cache
       uses: actions/cache/save@v4
       with:
         path: ~/.cabal/store
         key: ${{ steps.cache-keys.outputs.store }}
     - name: Build
-      run: cabal build all
+      run: cabal build discord-uploader
     - name: Save dist-newstyle cache
       uses: actions/cache/save@v4
       with:
