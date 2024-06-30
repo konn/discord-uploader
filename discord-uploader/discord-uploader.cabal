@@ -68,7 +68,7 @@ common exe
 
 library
   import: defaults
-  -- cabal-gild: discover src
+  -- cabal-gild: discover src --include=src/**/*.hs
   exposed-modules:
     Development.GitHub.Discord.Upload
     Effectful.Network.Cloudflare.Workers.KV
@@ -78,26 +78,24 @@ library
   build-depends:
     aeson,
     bytestring,
-    deepseq,
+    cloudflare-kv-manager-core,
     effectful,
-    effectful-lens,
+    foldl,
     generic-lens,
     hashable,
     http-client,
-    http-types,
     lens,
-    log-effectful,
     log-effectful-extra,
     optparse-applicative,
     path-tagged,
     path-tagged-effectful,
-    random-effectful,
     resourcet-effectful,
     safe-exceptions,
+    steward-client,
+    steward-core,
+    streaming,
     streaming-SHA,
     streaming-bytestring,
-    streaming-effectful,
-    streaming-http,
     streaming-http-effectful,
     text,
     time,
@@ -117,6 +115,6 @@ test-suite discord-uploader-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   hs-source-dirs: test
-  -- cabal-gild: discover test --exclude=test/Spec.hs
+  -- cabal-gild: discover test --include=test/**/*.hs --exclude=test/Spec.hs
   other-modules:
   build-depends: discord-uploader

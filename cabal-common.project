@@ -1,0 +1,36 @@
+allow-newer: lucid2:base
+
+source-repository-package
+  type: git
+  location: https://github.com/deepflowinc/effectful-extras
+  tag: 11fec60ba00e63beb12cd57a96396ca84bc6d3e7
+  subdir:
+    streaming-effectful
+    streaming-http-effectful
+    effectful-lens
+    path-tagged-effectful
+    random-effectful
+    time-effectful
+    log-effectful-extra
+
+source-repository-package
+  type: git
+  location: https://github.com/deepflowinc/streaming-extras
+  tag: d651e6f0c65c764155a778780cf2770f28ae23de
+  subdir:
+    streaming-SHA
+    streaming-http
+
+source-repository-package
+  type: git
+  location: https://github.com/konn/ghc-wasm-earthly
+  tag: 213e13fe6f8b5751eb4c8a5cd599944b9703c54c
+  subdir:
+    cloudflare-worker
+    ghc-wasm-compat
+    ghc-wasm-jsobjects
+    wasm-linear-base
+    web-sys-hs
+    steward-core
+    steward-client
+    steward-workers

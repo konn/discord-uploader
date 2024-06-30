@@ -1,0 +1,98 @@
+cabal-version: 3.0
+name: cloudflare-kv-manager
+version: 0.1.0.0
+description: Please see the README on GitHub at <https://github.com/konn/discord-uploader/cloudflare-kv-manager#readme>
+homepage: https://github.com/konn/discord-uploader#readme
+bug-reports: https://github.com/konn/discord-uploader/issues
+author:
+maintainer:
+copyright: (c)  2024- present
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
+tested-with:
+  ghc ==9.10.1 || ==9.10.0.20240412
+
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+
+data-dir: data
+
+source-repository head
+  type: git
+  location: https://github.com/konn/discord-uploader
+  subdir: cloudflare-kv-manager
+
+common defaults
+  autogen-modules: Paths_cloudflare_kv_manager
+  other-modules: Paths_cloudflare_kv_manager
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wmissing-export-lists
+    -Wmissing-home-modules
+    -Wpartial-fields
+    -Wredundant-constraints
+    -Wunused-packages
+
+  default-language: Haskell2010
+  build-depends: base >=4.7 && <5
+
+  if !os(wasi)
+    build-depends: ghc-wasm-compat
+    ghc-options:
+      -fplugin
+      GHC.Wasm.FFI.Plugin
+
+library
+  import: defaults
+  -- cabal-gild: discover --include=src/**/*.hs src
+  exposed-modules: Development.GitHub.Discord.Upload.Worker
+  hs-source-dirs: src
+  build-depends:
+    aeson,
+    base64-bytestring,
+    bytestring,
+    cloudflare-kv-manager-core,
+    cloudflare-worker,
+    containers,
+    effectful,
+    ghc-wasm-compat,
+    ghc-wasm-jsobjects,
+    integer-logarithms,
+    safe-exceptions,
+    steward-workers,
+    text,
+    time-effectful,
+    wasm-linear-base,
+    web-sys-hs,
+
+executable cloudflare-kv-manager
+  import: defaults
+  main-is: Main.hs
+  hs-source-dirs: app
+  ghc-options: -O2
+
+  if os(wasi)
+    ghc-options:
+      -no-hs-main
+      -optl-mexec-model=reactor
+      "-optl-Wl,--export=handlers"
+  build-depends: cloudflare-kv-manager
+
+test-suite cloudflare-kv-manager-test
+  import: defaults
+  type: exitcode-stdio-1.0
+  main-is: Test.hs
+  hs-source-dirs: test
+  ghc-options:
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+    -O2
+
+  build-depends: cloudflare-kv-manager

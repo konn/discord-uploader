@@ -1,0 +1,53 @@
+cabal-version: 3.0
+name: cloudflare-kv-manager-core
+version: 0.1.0.0
+description: Please see the README on GitHub at <https://github.com/konn/discord-uploader/cloudflare-kv-manager-core#readme>
+homepage: https://github.com/konn/discord-uploader#readme
+bug-reports: https://github.com/konn/discord-uploader/issues
+author:
+maintainer:
+copyright: (c) Hiromi ISHII 2024- present
+license: BSD-3-Clause
+license-file: LICENSE
+build-type: Simple
+tested-with:
+  ghc ==9.10.1 || ==9.10.0.20240412
+
+extra-doc-files:
+  CHANGELOG.md
+  README.md
+
+source-repository head
+  type: git
+  location: https://github.com/konn/discord-uploader
+  subdir: cloudflare-kv-manager-core
+
+common defaults
+  autogen-modules: Paths_cloudflare_kv_manager_core
+  other-modules: Paths_cloudflare_kv_manager_core
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wmissing-export-lists
+    -Wmissing-home-modules
+    -Wpartial-fields
+    -Wredundant-constraints
+    -Wunused-packages
+
+  default-language: GHC2021
+
+library
+  import: defaults
+  -- cabal-gild: discover src --include=src/**/*.hs
+  exposed-modules: Network.Cloudflare.Worker.KVManager.Types
+  hs-source-dirs: src
+  build-depends:
+    aeson,
+    base >=4.7 && <5,
+    bytestring,
+    cloudflare-worker,
+    steward-core,
+    text,
