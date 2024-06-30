@@ -68,7 +68,7 @@ common exe
 
 library
   import: defaults
-  -- cabal-gild: discover src
+  -- cabal-gild: discover src --include=src/**/*.hs
   exposed-modules:
     Development.GitHub.Discord.Upload
     Effectful.Network.Cloudflare.Workers.KV
@@ -79,21 +79,16 @@ library
     aeson,
     bytestring,
     cloudflare-kv-manager-core,
-    deepseq,
     effectful,
-    effectful-lens,
     foldl,
     generic-lens,
     hashable,
     http-client,
-    http-types,
     lens,
-    log-effectful,
     log-effectful-extra,
     optparse-applicative,
     path-tagged,
     path-tagged-effectful,
-    random-effectful,
     resourcet-effectful,
     safe-exceptions,
     steward-client,
@@ -101,8 +96,6 @@ library
     streaming,
     streaming-SHA,
     streaming-bytestring,
-    streaming-effectful,
-    streaming-http,
     streaming-http-effectful,
     text,
     time,
