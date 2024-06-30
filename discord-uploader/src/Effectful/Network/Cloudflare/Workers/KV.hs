@@ -31,7 +31,7 @@ import Data.Generics.Labels ()
 import Data.Hashable (Hashable)
 import Data.Text qualified as T
 import Effectful
-import Effectful.Dispatch.Dynamic (interpret, send)
+import Effectful.Dispatch.Dynamic (HasCallStack, interpret, send)
 import GHC.Generics (Generic)
 import Network.Cloudflare.Worker.KVManager.Types
 import Steward.Client.Effectful (StewardClient)
@@ -104,7 +104,7 @@ runKV =
 
 decodeMeta ::
   forall a m.
-  (FromJSON a, MonadThrow m) =>
+  (HasCallStack, FromJSON a, MonadThrow m) =>
   ValueWithMetadata ->
   m (KeyEntry a)
 decodeMeta valMeta = do
