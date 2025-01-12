@@ -4,7 +4,7 @@ hpack: false
 defaults:
   template: monorepo-single
   snapshot: nightly
-  project-file: false
+  project-file: true
 
 params:
   monorepo: discord-uploader
